@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Test heatmap</title>
+    <style>
+      body {
+        font-family: arial;
+      }
+      .container {
+        width: 80%;
+        margin: 0 auto;
+      }
+      .row {
+        display: flex;
+      }
+      .row > div {
+        padding: 0 15px;
+      }
+      .row > div .block {
+        border: 1px solid #333;
+        min-height: 250px;
+        margin-bottom: 15px;
+      }
+      .block {
+        display:flex;
+        justify-content: center;
+        align-items:center;
+      }
+      .block a{
+        text-decoration: none;
+        color:#333;
+        font-weight:bold;
+        font-size:15px;
+        display:block;
+      }
+      .block a:hover{
+        color: #c1c1c1;
+      }
+      .col-3 {
+        width: 25%;
+      }
+      .col-4 {
+        width: 33.3%;
+      }
+      .col-6 {
+        width: 50%;
+      }
+      .col-8 {
+        width: 66.6%;
+      }
+      .point {
+        width: 20px;
+        height: 20px;
+        opacity: 0.5;
+        position: absolute;
+        border-radius: 50%;
+      }
+      .filter {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 15px 0;
+        margin-bottom: 15px;
+        border-bottom: 1px solid #333;
+      }
+      .filter .form-group {
+        margin: 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <form class="filter" name="filter">
+        <div class="form-group">
+          <label
+            ><input type="checkbox" name="click" value="click" /> On
+            click</label
+          >
+        </div>
+        <div class="form-group">
+          <label
+            ><input type="checkbox" name="mousedown" value="mousedown" /> On
+            mousedown</label
+          >
+        </div>
+        <div class="form-group">
+          <label
+            ><input type="checkbox" name="mouseup" value="mouseup" /> On
+            mouseup</label
+          >
+        </div>
+        <div class="form-group">
+          <label
+            ><input type="checkbox" name="touchstart" value="touchstart" /> On
+            touch</label
+          >
+        </div>
+        <div class="form-group">
+          <label
+            ><input type="range" name="timestamp" min="" max="" /> On
+            timestamp</label
+          >
+        </div>
+        <div class="form-group">
+          <select name="sessionID">
+            <option>On sessionID</option>
+          </select>
+        </div>
+        <button class="view-heatmap" type="button">View/Hide heatmap</button>
+      </form>
+      <div class="block-event">
+        <div class="row">
+          <div class="col-3">
+            <div class="block"><a href="#">Какая-то ссылка</a></div>
+          </div>
+          <div class="col-6"><div class="block"></div></div>
+          <div class="col-3"><div class="block"></div></div>
+        </div>
+        <div class="row">
+          <div class="col-8"><div class="block"></div></div>
+          <div class="col-4"><div class="block"></div></div>
+        </div>
+        <div class="row">
+          <div class="col-6"><div class="block"></div></div>
+          <div class="col-6"><div class="block"></div></div>
+        </div>
+        <div class="row">
+          <div class="col-3"><div class="block"></div></div>
+          <div class="col-6"><div class="block"></div></div>
+          <div class="col-3"><div class="block"></div></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", function() {
+        let trigger = ["click", "mousedown", "mouseup", "touchstart"],
+          dataEvent = window.localStorage.getItem("historyEvents")
+            ? JSON.parse(window.localStorage.getItem("historyEvents"))
+            : [],
+          types = {
+            click: "red",
+            mouseup: "yellow",
+            mousedown: "orange",
+            touchstart: "green"
+          },
+          session = getRandomIntInclusive(100000, 999999);
+        addOptionsSessionID();
+        if (dataEvent && dataEvent.length > 0) {
+          addOptionsTimestamp();
+        }
+        for (let i = 0; i < trigger.length; i++) {
+          document.body.addEventListener(trigger[i], saveEvent);
+        }
+        function saveEvent(e) {
+          let flag = true;
+          for (let i = 0; i < e.path.length; i++) {
+            if (
+              (e.path[i].className &&
+                e.path[i].className.indexOf("filter") !== -1) ||
+              (e.path[i].className &&
+                e.path[i].className.indexOf("point") !== -1)
+            ) {
+              flag = false;
+            }
+          }
+          if (flag) {
+            let obj = {
+              type: e.type,
+              timestamp: new Date().getTime(),
+              screen: [window.innerWidth, window.innerHeight],
+              sessionID: session,
+              coordinates:
+                e.type === "touchstart"
+                  ? [e.touches[0].pageX - 10, e.touches[0].pageY - 10]
+                  : [e.pageX - 10, e.pageY - 10],
+              device: navigator.userAgent
+            };
+            dataEvent.push(obj);
+            addOptionsSessionID();
+            POST("/save-event", dataEvent)
+              .then(function(res) {
+                alert("Save events success!");
+              })
+              .catch(function(err) {
+                alert("Save events feilure!");
+              });
+            window.localStorage.setItem(
+              "historyEvents",
+              JSON.stringify(dataEvent)
+            );
+            if (
+              document
+                .querySelectorAll(".view-heatmap")[0]
+                .classList.contains("view")
+            ) {
+              drawPoints(dataEvent);
+            }
+          }
+        }
+
+        document
+          .querySelectorAll(".view-heatmap")[0]
+          .addEventListener("click", function(e) {
+            this.classList.toggle("view");
+            if (document.querySelectorAll(".point")[0]) {
+              clearPoints();
+            } else {
+              let points = JSON.parse(
+                window.localStorage.getItem("historyEvents")
+              );
+              drawPoints(points);
+            }
+          });
+        let arrFilter = [];
+        [].forEach.call(document.forms["filter"].elements, function(el) {
+          el.addEventListener("change", function() {
+            let obj = {};
+            if (this.type === "checkbox") {
+              if (this.checked) {
+                arrFilter.push({
+                  type: this.name,
+                  value: this.value
+                });
+              } else {
+                let index = arrFilter.find((el, i) => {
+                  if (el.event === this.name) {
+                    return i;
+                  }
+                });
+                arrFilter.splice(index, 1);
+              }
+            }
+            let listEvent = JSON.parse(
+              window.localStorage.getItem("historyEvents")
+            );
+            let arr = listEvent.filter(function(item) {
+              for (let i = 0; i < arrFilter.length; i++) {
+                for (var key in arrFilter[i]) {
+                  if (item[key] == arrFilter[i][key]) return true;
+                }
+              }
+              return false;
+            });
+            drawPoints(arr);
+          });
+        });
+        document.forms["filter"].elements["sessionID"].addEventListener(
+          "change",
+          function() {
+            let filterArr = [];
+            let listEvent = JSON.parse(
+              window.localStorage.getItem("historyEvents")
+            );
+            filterArr.push(...listEvent.filter(f => this.value == f.sessionID));
+            drawPoints(filterArr);
+          }
+        );
+        document.forms["filter"].elements["timestamp"].addEventListener(
+          "change",
+          function() {
+            let listEvent = window.localStorage.getItem("historyEvents")
+              ? JSON.parse(window.localStorage.getItem("historyEvents"))
+              : [];
+            drawPoints(listEvent.filter(a => a.timestamp < this.value));
+          }
+        );
+
+
+        function addOptionsSessionID() {
+          document.forms["filter"].elements["sessionID"].innerHTML = "";
+          let listEvent = window.localStorage.getItem("historyEvents")
+            ? JSON.parse(window.localStorage.getItem("historyEvents"))
+            : [];
+          let obj = {};
+          for (let i = 0; i < listEvent.length; i++) {
+            obj[listEvent[i].sessionID] = listEvent[i].sessionID;
+          }
+          let option = document.createElement("option");
+          option.innerText = "SessionID";
+          document.forms["filter"].elements["sessionID"].appendChild(option);
+          for (let key in obj) {
+            let option = document.createElement("option");
+            option.value = obj[key];
+            option.innerText = obj[key];
+            document.forms["filter"].elements["sessionID"].appendChild(option);
+          }
+        }
+        
+        function addOptionsTimestamp() {
+          let listEvent = window.localStorage.getItem("historyEvents")
+            ? JSON.parse(window.localStorage.getItem("historyEvents"))
+            : [];
+          let sort = listEvent.sort((a, b) => {
+            if (a.timestamp > b.timestamp) {
+              return 1;
+            } else {
+              return -1;
+            }
+          });
+          document.forms["filter"].elements["timestamp"].setAttribute(
+            "min",
+            sort[0].timestamp
+          );
+          document.forms["filter"].elements["timestamp"].setAttribute(
+            "max",
+            sort[sort.length - 1].timestamp
+          );
+        }
+        function drawPoints(points) {
+          if (points) {
+            clearPoints();
+            for (let key in points) {
+              let div = document.createElement("div");
+              div.className = "type-" + points[key].type + " point";
+              div.style =
+                "background:" +
+                types[points[key].type] +
+                ";left:" +
+                points[key].coordinates[0] +
+                "px;top:" +
+                points[key].coordinates[1] +
+                "px;";
+              div.addEventListener("click", function(e) {
+                e.preventDefault(), e.stopPropagation();
+                e.stopImmediatePropagation();
+                alert(JSON.stringify(points[key]));
+              });
+              document.body.appendChild(div);
+            }
+          }
+        }
+
+        function clearPoints() {
+          let points = document.querySelectorAll(".point");
+          for (let i = 0; i < points.length; i++) {
+            points[i].outerHTML = "";
+          }
+        }
+
+        function getRandomIntInclusive(min, max) {
+          min = Math.ceil(min);
+          max = Math.floor(max);
+          return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function POST(url, data, type) {
+          if (!type) type = "json";
+          return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("post", url, true);
+            xhr.responseType = type;
+            xhr.setRequestHeader(
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            );
+            xhr.send(data);
+            xhr.onload = function() {
+              var status = xhr.status;
+              if (status == 200) {
+                resolve(xhr.response);
+              } else {
+                reject(status);
+              }
+            };
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
